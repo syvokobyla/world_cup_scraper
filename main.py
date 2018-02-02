@@ -5,7 +5,6 @@ import requests
 import re
 import logging
 from bs4 import BeautifulSoup
-#from lxml import html
 
 from selenium import webdriver
 
@@ -21,8 +20,8 @@ class MarkupError(Exception):
     pass
 
 
-class HtmlCrawler:
-    
+class BaseCrawler:
+
     DEFAULT_PATH = None
     DEFAULT_START_URL = None
     
@@ -30,36 +29,15 @@ class HtmlCrawler:
         self.start_url = start_url or self.DEFAULT_START_URL
         self.path = path or self.DEFAULT_PATH
         assert self.start_url
-    
+
     def scrape(self):
         """Scrape the website and return parsed table.
         """
-        url = self._navigate(self.start_url, self.path)
-        soup = self._get_soup(url)
-        return self._parse(soup)
-        
-    def _navigate(self, url, path):
-        next_url = url
-        for word in path:
-            soup = self._get_soup(next_url)
-            a = soup.find("a", text=re.compile("^\s*" + word + "\s*$"))
-            # Trying to find <a> word <a/> in more complex situation
-            if not a:
-                a_string = soup.find(string=re.compile("^\s*" + word + "\s*$"))
-                if a_string:
-                    a_parents = a_string.find_parents("a")
-                    if a_parents:
-                        a = a_parents[0]
-            if not a:
-                raise MarkupError(
-                    "Error:There is no tag <a> {} </a>"
-                    "on the page {}".format(word, next_url))
-            next_url = a.get("href")
-        return next_url
+        raise NotImplementedError()
 
     def _parse(self, soup):
         try:
-            team_string = soup.find(string=re.compile("^\s*" + 'Germany' + "\s*$")) #TODO! Team 
+            team_string = soup.find(string=re.compile("^\s*" + 'Germany' + "\s*$"))
             team_parent = team_string.find_parent()
             team_tag_class = team_parent['class']
             team_tag_name = team_parent.name
@@ -78,34 +56,49 @@ class HtmlCrawler:
             raise err
             print(err)
             return {}
+
+
+class HtmlCrawler(BaseCrawler):
+    
+    def scrape(self):
+        url = self._navigate(self.start_url, self.path)
+        soup = self._get_soup(url)
+        return self._parse(soup)
+        
+    def _navigate(self, url, path):
+        next_url = url
+        for word in path:
+            logging.debug("Navigate to %s", word)
+            soup = self._get_soup(next_url)
+            a = soup.find("a", text=re.compile("^\s*" + word + "\s*$"))
+            # Trying to find <a> word <a/> in more complex situation
+            if not a:
+                a_string = soup.find(string=re.compile("^\s*" + word + "\s*$"))
+                if a_string:
+                    a_parents = a_string.find_parents("a")
+                    if a_parents:
+                        a = a_parents[0]
+            if not a:
+                raise MarkupError(
+                    "Error:There is no tag <a> {} </a>"
+                    "on the page {}".format(word, next_url))
+            next_url = a.get("href")
+        return next_url
     
     def _get_soup(self, url, timeout=10, headers=None):
-        try:
-            if not headers:
-                headers = {'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) '
-                           'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.119 Safari/537.36'}
-            r = requests.get(url, timeout=timeout, headers=headers)
-            r.raise_for_status()
-            soup = BeautifulSoup(r.text, "lxml")
-            return soup
-        except requests.exceptions.ProxyError as errp:
-            print ("Proxy Error:", errp)
-        except requests.exceptions.Timeout as errt:
-            print ("Timeout Error. Timeout is set to {} sec:".format(timeout), errt)
-        except requests.exceptions.RequestException as err:
-            print ("Error:", err)
-        return None
+        if not headers:
+            headers = {'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) '
+                       'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.119 Safari/537.36'}
+        r = requests.get(url, timeout=timeout, headers=headers)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "lxml")
+        return soup
 
 
-class JavascriptCrawler:
-
-    DEFAULT_PATH = None
-    DEFAULT_START_URL = None
+class JavascriptCrawler(BaseCrawler):
     
     def __init__(self, start_url=None, path=None):
-        self.start_url = start_url or self.DEFAULT_START_URL
-        self.path = path or self.DEFAULT_PATH
-        assert self.start_url
+        super(JavascriptCrawler).__init__(start_url, path)
 
         firefox_options = Options()  
         #firefox_options.add_argument("--headless") 
@@ -115,24 +108,35 @@ class JavascriptCrawler:
         """Scrape the website and return parsed table.
         """
         self._navigate(self.start_url, self.path)
-        return self._parse()
+        soup = BeautifulSoup(self.driver.page_source)
+        return self._parse(soup)
 
     def _navigate(self, url, path):
         driver = self.driver
         driver.get(url)
         driver.execute_script("""
-            window.getElementsByText = (str) => { 
-                  return Array.prototype.slice.call(
-                      document.querySelectorAll('a,span')).
-                      filter(el => el.textContent.trim() === str.trim());
-            } """)
+            window.getLinkByText = (str) => { 
+                return Array.prototype.slice.call(
+                document.querySelectorAll('a,span')).
+                filter(el => el.textContent.trim() === str.trim())[0];
+            }
+
+            window.findAndClick = (str) => {
+                let link = window.getLinkByText(str);
+                if (!link) return false;
+                link.click();
+                return true;
+            }
+          """)
 
         for text in path:
+            logging.debug("Navigating to %s...", text)
             found = self._click_on_text(text)
             if not found:
                 raise MarkupError(
                     "Cannot found clickable `{text}` on a page"
                     .format(text=text))
+        logging.debug("Succefully reached the path")
 
     def _click_on_text(self, text):
         """Find a link with the given text and click on it.
@@ -140,15 +144,13 @@ class JavascriptCrawler:
         Returns:
             bool, True if the link was found and clicked, False otherwise.
         """
-        link = self.driver.execute_script(
-            "return window.getElementsByText('{text}', tag = 'a')[0]"
+        found = self.driver.execute_script(
+            "return window.findAndClick('{text}')"
             .format(text=text.replace("'", "\\'")))
-        if not link:
-            return False
+        if found:
+            time.sleep(5)
 
-        link.click()
-        time.sleep(5)
-        return True
+        return found
 
 
 class SkyBetCrawler(JavascriptCrawler):
@@ -166,34 +168,79 @@ class WillIamHillCrawler(HtmlCrawler):
 class PaddyPowerCrawler(HtmlCrawler):
     DEFAULT_PATH = ["Football Betting", "Outrights", "World Cup 2018"]
     DEFAULT_START_URL = "http://www.paddypower.com"
+
+
+
+def print_table(table, teams):
+    """Pretty print results table for selected teams.
+
+    Args:
+        table (dict): source => team => score mapping
+        teams (list): teams to print.
+    """
+
+    # Print header
+    sources = sorted(table.keys())
+    print("{:30} ".format("Team"), end='')
+    for source in sources:
+        print("{:10} ".format(source), end='')
+    print()
+    print("-" * 40)
+
+    # Print body
+    for team in teams:
+        print("{:30} ".format(team), end='')
+        for source in sources:
+            scores = table[source].get(team, 'NA')
+            print("{:10} ".format(scores), end='')
+        print()
+
+    # Print footer
+    print()
+    print()
      
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--update-interval', 
-                        default='5',
-                        help="Odds updating interval in minutes, default is %(default)s min."
+                        default=5*60,
+                        type=int,
+                        help="Odds updating interval in secodns, default is %(default)s is"
                         )
     parser.add_argument('--team-names', 
                         default="['Germany', 'France', 'Argentina']",
                         help="Team names, default is %(default)s"
                         )
+    parser.add_argument('-v', '--verbose', action='store_true')
     args = parser.parse_args()
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARNING)
 
-    
     crawlers = {
-        "SkyBet": SkyBetCrawler(),
-        #"WilliamHill": WillIamHillCrawler(),
-        #"PaddyPower": PaddyPowerCrawler()
+        #"SkyBet": SkyBetCrawler(),
+        "WilliamHill": WillIamHillCrawler(),
+        "PaddyPower": PaddyPowerCrawler()
     }
 
-    for c in crawlers.values():
-        try:
-            print(c.scrape())
-        except Exception as e:
-            raise
-            print(e)
-    stop
+    while True:
+        table = {}
+        all_teams = set()
+        for source, c in crawlers.items():
+            try:
+                scores = c.scrape()
+                table[source] = scores
+                all_teams |= set(scores.keys())
+            except Exception as e:
+                logging.warning("Error collecting data from %s: %s", source, e)
+                scores = {}
+
+        teams = args.team_names or sorted(all_teams)
+        print_table(table, teams)
+        time.sleep(args.update_interval)
+
+
+    asdfjaskdfj
+
+
 
     
     url = "https://www.skybet.com/"

@@ -11,17 +11,17 @@ from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
 
 
-class MarkupError(Exception): 
+class MarkupError(Exception):
     """Should be thrown if markup of page is not as it was expected."""
     pass
 
 
 class BaseCrawler:
     """Interface class for crawlers."""
-    
+
     DEFAULT_PATH = None
     DEFAULT_START_URL = None
-    
+
     def __init__(self, start_url=None, path=None):
         self.start_url = start_url or self.DEFAULT_START_URL
         self.path = path or self.DEFAULT_PATH
@@ -31,25 +31,25 @@ class BaseCrawler:
         """Scrape the website and return parsed table.
         """
         raise NotImplementedError()
-   
+
     def _navigate(self, url, path):
         """Navigate from url to necessary page using key words from list 'path'.
-        
+
         Args:
             url : string
                 Starting url.
             path : list of strings
                 Words from this list are used to find and click next necessary
-                link. And so on. 
-                
+                link. And so on.
+
         Returns:
             string, the link to necessary page.
-        """  
+        """
         raise NotImplementedError()
 
     def _parse(self, soup):
         """Parse the soup, find teams and scores.
-        
+
         Args:
             soup : BeautifulSoup
                 soup of web page with teams and scores.
@@ -57,19 +57,20 @@ class BaseCrawler:
             team => score dictionary or {}
         """
         try:
-            #Find the class and tag name, where team name is stored.
-            team_string = soup.find(string=re.compile("^\s*" + 'Germany' + "\s*$"))
+            # Find the class and tag name, where team name is stored.
+            team_string = soup.find(string=re.compile(
+                                        "^\s*" + 'Germany' + "\s*$"))
             team_parent = team_string.find_parent()
             team_tag_class = team_parent['class']
             team_tag_name = team_parent.name
-            
-            #Find the class and tag name, where odd is stored.
+
+            # Find the class and tag name, where odd is stored.
             odd_string = soup.find(string=re.compile("^\s*\d*/\d*\s*$"))
             odd_parent = odd_string.find_parent()
             odd_tag_class = odd_parent['class']
             odd_tag_name = odd_parent.name
 
-            #Find all teams and their odds
+            # Find all teams and their odds
             odds_list = soup.find_all(odd_tag_name, {"class": odd_tag_class})
             team_list = soup.find_all(team_tag_name, {"class": team_tag_class})
             odds = [odd.text.strip() for odd in odds_list]
@@ -83,25 +84,25 @@ class BaseCrawler:
 
 class HtmlCrawler(BaseCrawler):
     """Crawler for simple html sites."""
-    
+
     def scrape(self):
         """Scrape the website and return parsed table.
         """
-        #Navigate to necessary page. 
+        # Navigate to necessary page.
         url = self._navigate(self.start_url, self.path)
-        #Get soup of that page.
+        # Get soup of that page.
         soup = self._get_soup(url)
-        #Return parsed data.
+        # Return parsed data.
         return self._parse(soup)
-        
+
     def _navigate(self, url, path):
-         """Navigate from url to necessary page using key words from list 'path'.
-         """
+        """Navigate from url to necessary page using key words from list 'path'.
+        """
         next_url = url
         for word in path:
             logging.debug("Navigate to %s", word)
             soup = self._get_soup(next_url)
-            #Trying to find <a/> containing word from path list. 
+            # Trying to find <a/> containing word from path list.
             a = soup.find("a", text=re.compile("^\s*" + word + "\s*$"))
             # Trying to find <a> word <a/> in more complex situation.
             if not a:
@@ -116,14 +117,15 @@ class HtmlCrawler(BaseCrawler):
                     "on the page {}".format(word, next_url))
             next_url = a.get("href")
         return next_url
-    
+
     def _get_soup(self, url, timeout=10, headers=None):
         """Get soup from url.
         """
         if not headers:
-            #Headers to mimic browser and not be recognized as bot.
-            headers = {'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) '
-                       'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.119 Safari/537.36'}
+            # Headers to mimic browser and not be recognized as bot.
+            headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) '
+                       'AppleWebKit/537.36 (KHTML, like Gecko)'
+                       'Chrome/64.0.3282.119 Safari/537.36'}
         r = requests.get(url, timeout=timeout, headers=headers)
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "lxml")
@@ -132,30 +134,30 @@ class HtmlCrawler(BaseCrawler):
 
 class JavascriptCrawler(BaseCrawler):
     """Crawler for js sites."""
-    
+
     def __init__(self, start_url=None, path=None):
         super().__init__(start_url, path)
 
         firefox_options = Options()
-        firefox_options.add_argument("--headless") 
+        firefox_options.add_argument("--headless")
         self.driver = webdriver.Firefox(firefox_options=firefox_options)
-    
+
     def scrape(self):
         """Scrape the website and return parsed table.
         """
         self._navigate(self.start_url, self.path)
-        soup = BeautifulSoup(self.driver.page_source)
+        soup = BeautifulSoup(self.driver.page_source, "lxml")
         return self._parse(soup)
 
     def _navigate(self, url, path):
-         """Navigate from url to necessary page using key words from list 'path'.
-         """
+        """Navigate from url to necessary page using key words from list 'path'.
+        """
         driver = self.driver
         driver.get(url)
-        #Execute the js script which looks for element with
-        #necessary text and click on it.
+        # Execute the js script which looks for element with
+        # necessary text and click on it.
         driver.execute_script("""
-            window.getLinkByText = (str) => { 
+            window.getLinkByText = (str) => {
                 return Array.prototype.slice.call(
                 document.querySelectorAll('a,span')).
                 filter(el => el.textContent.trim() === str.trim())[0];
@@ -168,10 +170,10 @@ class JavascriptCrawler(BaseCrawler):
                 return true;
             }
           """)
-        
+
         for text in path:
             logging.debug("Navigating to %s...", text)
-            #Find and click on element with text
+            # Find and click on element with text
             found = self._click_on_text(text)
             if not found:
                 raise MarkupError(
@@ -201,15 +203,17 @@ class SkyBetCrawler(JavascriptCrawler):
 
 
 class WillIamHillCrawler(HtmlCrawler):
-    DEFAULT_PATH = ["Football", "World Cup 2018", "World Cup 2018 - To Reach The Quarter Finals"]
-                    #"World Cup 2018 - Outright"]
+    # "World Cup 2018 - Outright" is not vaid at the moment.
+    # Was changed to page World Cup 2018 - To Reach The Quarter Finals
+    DEFAULT_PATH = ["Football", "World Cup 2018",
+                    "World Cup 2018 - To Reach The Quarter Finals"]
+
     DEFAULT_START_URL = "http://sports.williamhill.com/"
-        
-        
+
+
 class PaddyPowerCrawler(HtmlCrawler):
     DEFAULT_PATH = ["Football Betting", "Outrights", "World Cup 2018"]
     DEFAULT_START_URL = "http://www.paddypower.com"
-
 
 
 def print_table(table, teams):
@@ -223,7 +227,8 @@ def print_table(table, teams):
     sources = sorted(table.keys())
     dt = datetime.now()
     print()
-    print("Information is actual on {}".format(dt.strftime('%A, %d. %B %Y %I:%M%p')))
+    print("Information is actual on {}".format(
+                                dt.strftime('%A, %d. %B %Y %I:%M%p')))
     print()
     print("{:40} ".format("Team"), end='')
     for source in sources:
@@ -242,38 +247,34 @@ def print_table(table, teams):
     # Print footer
     print()
     print()
-     
-        
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--update-interval', 
+    parser.add_argument('--update-interval',
                         default=5*60,
                         type=int,
-                        help="Odds updating interval in secodns, default is %(default)s is"
+                        help="Odds updating interval in secodns,' \
+                             'default is %(default)s is"
                         )
-    parser.add_argument('--team-names', 
-                        default=['Germany', 'Iceland', 'Brazil', 'Saudi Arabia', 
-                                 'Australia', 'Senegal', 'Poland', 'Iran', 
-                                 'Morocco', 'Colombia', 'Peru', 'Portugal', 
-                                 'Denmark', 'Russia', 'Sweden', 'Switzerland', 
-                                 'Costa Rica', 'England', 'Japan', 'Egypt', 
-                                 'Spain', 'Panama', 'Argentina', 'South Korea', 
-                                 'Belgium', 'France', 'Uruguay', 'Mexico', 
-                                 'Croatia', 'Nigeria', 'Serbia', 'Tunisia'],
-                        type=list,
-                        help="Team names, default is %(default)s"
+    parser.add_argument('--team-names',
+                        nargs="*",
+                        help="Print only these teams. '\
+                             'Default is to print all."
                         )
     parser.add_argument('-v', '--verbose', action='store_true')
     args = parser.parse_args()
-    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARNING)
+    logging.basicConfig(level=logging.DEBUG
+                        if args.verbose
+                        else logging.WARNING)
 
     crawlers = {
         "SkyBet": SkyBetCrawler(),
         "WilliamHill": WillIamHillCrawler(),
         "PaddyPower": PaddyPowerCrawler()
     }
-    
-    #Repeatedly crawl and parse sites, output data. 
+
+    # Repeatedly crawl and parse sites, output data.
     while True:
         table = {}
         all_teams = set()
@@ -289,5 +290,3 @@ if __name__ == '__main__':
         teams = args.team_names or sorted(all_teams)
         print_table(table, teams)
         time.sleep(args.update_interval)
-    
-    

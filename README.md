@@ -10,10 +10,12 @@ Task is to write a BOT, which can extract odds/probability for all the teams in 
 
 
 ## Prerequisites
-	Beautiful Soup python lib.
-	Selenium python lib.
 
-	Firefox headless browser driver.
+Python requirements:
+
+     $ pip install beautifulsoup4 selenium
+     
+Firefox and [geckodriver](https://github.com/mozilla/geckodriver) are required for scraping sites rendered in Javascript. Firefox will be started in headless mode.
     
 
 ## Workflow notes

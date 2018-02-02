@@ -19,7 +19,13 @@ Firefox and [geckodriver](https://github.com/mozilla/geckodriver) are required f
     
 
 ## Workflow notes
-1. Navigation to correct match link is made by text processing/analysis. The chain of words for navigation have to be provided. Example for SkyBet: ['Football', 'Competitions', 'World Cup 2018', 'Outrights', 'World Cup 2018 Winner']. At the moment list of that words are hardcoded. In the future it can be configured if necessary.
+
+1. Plain HTML sites are parsed with BeautifulSoup. Javascript-rendered ones rely on Selenium: automation that runs headless browser.
+
+2. In either case, crawler will first navigate to the page with the result table by looking for links with relevant text, like ['Football', 'Competitions', 'World Cup 2018', 'Outrights', 'World Cup 2018 Winner']. At the moment list of that words are hardcoded. In the future it can be configured if necessary.
+
+3. After we got to the outrights page, scrape the table. We do it by locating an "anchor" element first. Anchor element contains some team name. Then we look for its siblings. This constitues a list of all teams.
+
 
 ## Warnings
 1. At the moment part of work for https://mobile.bet365.com/ is not finished.

@@ -66,3 +66,11 @@ Tunisia                                  750/1                325/1             
 Uruguay                                  28/1                 11/1                 15/8 
 ```
 
+## Command-line options
+
+```
+  --update-interval SECONDS                       Odds updating interval in secodns default is 300s
+  --team-names [TEAM_NAMES [TEAM_NAMES ...]       Print only these teams. Default is to print all.
+  -v, --verbose                                   Print debug output.
+```
+

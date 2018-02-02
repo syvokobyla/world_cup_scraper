@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 import argparse
+import time
 import requests
 import re
+import logging
 from bs4 import BeautifulSoup
-from lxml import html
+#from lxml import html
 
 from selenium import webdriver
 
@@ -94,7 +96,67 @@ class HtmlCrawler:
             print ("Error:", err)
         return None
 
+
+class JavascriptCrawler:
+
+    DEFAULT_PATH = None
+    DEFAULT_START_URL = None
     
+    def __init__(self, start_url=None, path=None):
+        self.start_url = start_url or self.DEFAULT_START_URL
+        self.path = path or self.DEFAULT_PATH
+        assert self.start_url
+
+        firefox_options = Options()  
+        #firefox_options.add_argument("--headless") 
+        self.driver = webdriver.Firefox(firefox_options=firefox_options)
+    
+    def scrape(self):
+        """Scrape the website and return parsed table.
+        """
+        self._navigate(self.start_url, self.path)
+        return self._parse()
+
+    def _navigate(self, url, path):
+        driver = self.driver
+        driver.get(url)
+        driver.execute_script("""
+            window.getElementsByText = (str) => { 
+                  return Array.prototype.slice.call(
+                      document.querySelectorAll('a,span')).
+                      filter(el => el.textContent.trim() === str.trim());
+            } """)
+
+        for text in path:
+            found = self._click_on_text(text)
+            if not found:
+                raise MarkupError(
+                    "Cannot found clickable `{text}` on a page"
+                    .format(text=text))
+
+    def _click_on_text(self, text):
+        """Find a link with the given text and click on it.
+
+        Returns:
+            bool, True if the link was found and clicked, False otherwise.
+        """
+        link = self.driver.execute_script(
+            "return window.getElementsByText('{text}', tag = 'a')[0]"
+            .format(text=text.replace("'", "\\'")))
+        if not link:
+            return False
+
+        link.click()
+        time.sleep(5)
+        return True
+
+
+class SkyBetCrawler(JavascriptCrawler):
+    DEFAULT_START_URL = 'https://www.skybet.com/'
+    DEFAULT_PATH = ['Football', 'Competitions', 'World Cup 2018',
+                    'Outrights', 'World Cup 2018 Winner']
+
+
 class WillIamHillCrawler(HtmlCrawler):
     DEFAULT_PATH = ["Football", "World Cup 2018", "World Cup 2018 - To Reach The Quarter Finals"]
                     #"World Cup 2018 - Outright"]
@@ -119,17 +181,19 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     
-    if False:
-        crawlers = {
-            "WilliamHill": WillIamHillCrawler(),
-            "PaddyPower": PaddyPowerCrawler()
-        }
+    crawlers = {
+        "SkyBet": SkyBetCrawler(),
+        #"WilliamHill": WillIamHillCrawler(),
+        #"PaddyPower": PaddyPowerCrawler()
+    }
 
-        for c in crawlers.values():
-            try:
-                print(c.scrape())
-            except Exception as e:
-                print(e)
+    for c in crawlers.values():
+        try:
+            print(c.scrape())
+        except Exception as e:
+            raise
+            print(e)
+    stop
 
     
     url = "https://www.skybet.com/"
@@ -144,7 +208,6 @@ if __name__ == '__main__':
     firefox_options = Options()  
     #firefox_options.add_argument("--headless") 
     driver = webdriver.Firefox(firefox_options=firefox_options)
-    import time
     try:
         driver.get(url)
         driver.implicitly_wait(5)
